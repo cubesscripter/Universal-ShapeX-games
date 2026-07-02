@@ -1,0 +1,5 @@
+if game.PlaceId == 73956553001240 then
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/cubesscripter/Universal-ShapeX-games/refs/heads/main/Volleyball%20legends%20Inf%20spins"))()
+else
+    warn("This script only supports Volleyball Legends currently. Check the Supported Games channel for updates.")
+end

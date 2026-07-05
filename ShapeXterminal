@@ -1,0 +1,733 @@
+--[[
+    SHAPEX TERMINAL — Rayfield-style Edition
+    ------------------------------------------------
+    A self-contained LocalScript UI library styled after Rayfield's
+    API (Window:CreateTab, Tab:CreateSection, Section:CreateToggle, etc.)
+    but skinned in your dark hacker-terminal aesthetic.
+
+    SCOPE / SAFETY NOTE:
+    This build only reads and displays LOCAL PLAYER data (health, walkspeed,
+    position, FPS, ping, etc.) and local client settings (theme, UI scale,
+    keybinds). It contains NO remote calls, NO other-player lookups, and
+    NO exploit tooling (no fling/aimbot/hitbox/etc). If you want to extend
+    it, add tabs using the CreateTab/CreateSection pattern below — self-only.
+
+    HOW TO USE:
+    1. Drop this whole file into a LocalScript (StarterPlayerScripts or
+       via your executor).
+    2. To add a new tab:  local myTab = Window:CreateTab("My Tab", "🔧")
+    3. To add a section:  local sec = myTab:CreateSection("My Section")
+    4. To add components: sec:CreateToggle({...}) / CreateButton / CreateSlider
+       / CreateLabel / CreateDropdown  — see examples at bottom of file.
+]]
+
+local Players          = game:GetService("Players")
+local UserInputService  = game:GetService("UserInputService")
+local TweenService      = game:GetService("TweenService")
+local RunService        = game:GetService("RunService")
+local Stats              = game:GetService("Stats")
+
+local player = Players.LocalPlayer
+
+-- ============================================================
+-- THEME
+-- ============================================================
+local Theme = {
+    Background   = Color3.fromRGB(10, 10, 12),
+    Sidebar      = Color3.fromRGB(13, 13, 16),
+    Panel        = Color3.fromRGB(17, 17, 21),
+    SectionBg    = Color3.fromRGB(15, 15, 18),
+    Border       = Color3.fromRGB(40, 40, 46),
+    Accent       = Color3.fromRGB(120, 130, 255),
+    AccentDim    = Color3.fromRGB(70, 75, 130),
+    Text         = Color3.fromRGB(210, 210, 216),
+    SubText      = Color3.fromRGB(120, 120, 128),
+    Dim          = Color3.fromRGB(90, 90, 96),
+    Success      = Color3.fromRGB(90, 210, 130),
+    Error        = Color3.fromRGB(255, 90, 90),
+    Warning      = Color3.fromRGB(255, 185, 60),
+    Info         = Color3.fromRGB(110, 160, 255),
+    ToggleOff    = Color3.fromRGB(45, 45, 50),
+    ToggleOn     = Color3.fromRGB(120, 130, 255),
+}
+
+local FONT      = Enum.Font.Code
+local FONT_BOLD = Enum.Font.CodeBold
+local TXT_SIZE  = 13
+
+-- ============================================================
+-- ROOT GUI
+-- ============================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "ShapeXTerminal_Rayfield"
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = player:WaitForChild("PlayerGui")
+
+local Window = Instance.new("Frame")
+Window.Name = "Window"
+Window.Size = UDim2.fromOffset(760, 460)
+Window.AnchorPoint = Vector2.new(0.5, 0.5)
+Window.Position = UDim2.fromScale(0.5, 0.5)
+Window.BackgroundColor3 = Theme.Background
+Window.BorderSizePixel = 0
+Window.ClipsDescendants = true
+Window.Parent = ScreenGui
+Instance.new("UICorner", Window).CornerRadius = UDim.new(0, 8)
+local winStroke = Instance.new("UIStroke", Window)
+winStroke.Color = Theme.Border
+winStroke.Thickness = 1
+
+-- ---- Title bar ----
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 32)
+TitleBar.BackgroundColor3 = Theme.Panel
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = Window
+Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 8)
+
+local TitleFix = Instance.new("Frame") -- covers bottom corners so it looks square-joined
+TitleFix.Size = UDim2.new(1, 0, 0, 8)
+TitleFix.Position = UDim2.new(0, 0, 1, -8)
+TitleFix.BackgroundColor3 = Theme.Panel
+TitleFix.BorderSizePixel = 0
+TitleFix.Parent = TitleBar
+
+local TitleText = Instance.new("TextLabel")
+TitleText.BackgroundTransparency = 1
+TitleText.Size = UDim2.new(1, -90, 1, 0)
+TitleText.Position = UDim2.fromOffset(14, 0)
+TitleText.Font = FONT_BOLD
+TitleText.TextSize = TXT_SIZE
+TitleText.TextColor3 = Theme.Text
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.Text = "shapex@terminal ~ rayfield-style"
+TitleText.Parent = TitleBar
+
+local function MakeTopButton(offsetFromRight, glyph, hoverColor)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.fromOffset(26, 22)
+    b.AnchorPoint = Vector2.new(1, 0.5)
+    b.Position = UDim2.new(1, -offsetFromRight, 0.5, 0)
+    b.BackgroundTransparency = 1
+    b.Text = glyph
+    b.Font = FONT_BOLD
+    b.TextSize = 15
+    b.TextColor3 = Theme.SubText
+    b.AutoButtonColor = false
+    b.Parent = TitleBar
+    b.MouseEnter:Connect(function() TweenService:Create(b, TweenInfo.new(0.12), {TextColor3 = hoverColor}):Play() end)
+    b.MouseLeave:Connect(function() TweenService:Create(b, TweenInfo.new(0.12), {TextColor3 = Theme.SubText}):Play() end)
+    return b
+end
+
+local CloseBtn  = MakeTopButton(10, "×", Theme.Error)
+local MinimizeBtn = MakeTopButton(40, "–", Theme.Warning)
+
+CloseBtn.MouseButton1Click:Connect(function() Window.Visible = false end)
+
+-- ---- Drag to move ----
+do
+    local dragging, dragStart, startPos
+    TitleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = Window.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            Window.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
+-- ---- Sidebar ----
+local Sidebar = Instance.new("Frame")
+Sidebar.Size = UDim2.new(0, 170, 1, -32)
+Sidebar.Position = UDim2.fromOffset(0, 32)
+Sidebar.BackgroundColor3 = Theme.Sidebar
+Sidebar.BorderSizePixel = 0
+Sidebar.Parent = Window
+
+local sideStroke = Instance.new("Frame")
+sideStroke.Size = UDim2.new(0, 1, 1, 0)
+sideStroke.Position = UDim2.new(1, -1, 0, 0)
+sideStroke.BackgroundColor3 = Theme.Border
+sideStroke.BorderSizePixel = 0
+sideStroke.Parent = Sidebar
+
+local SidebarHeader = Instance.new("TextLabel")
+SidebarHeader.BackgroundTransparency = 1
+SidebarHeader.Size = UDim2.new(1, -20, 0, 30)
+SidebarHeader.Position = UDim2.fromOffset(14, 8)
+SidebarHeader.Font = FONT_BOLD
+SidebarHeader.TextSize = 11
+SidebarHeader.TextColor3 = Theme.Dim
+SidebarHeader.TextXAlignment = Enum.TextXAlignment.Left
+SidebarHeader.Text = "NAVIGATION"
+SidebarHeader.Parent = Sidebar
+
+local TabList = Instance.new("ScrollingFrame")
+TabList.Size = UDim2.new(1, 0, 1, -46)
+TabList.Position = UDim2.fromOffset(0, 40)
+TabList.BackgroundTransparency = 1
+TabList.BorderSizePixel = 0
+TabList.ScrollBarThickness = 3
+TabList.ScrollBarImageColor3 = Theme.AccentDim
+TabList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+TabList.CanvasSize = UDim2.new(0,0,0,0)
+TabList.Parent = Sidebar
+
+local TabListLayout = Instance.new("UIListLayout", TabList)
+TabListLayout.Padding = UDim.new(0, 2)
+TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- ---- Content area (holds one page per tab) ----
+local ContentArea = Instance.new("Frame")
+ContentArea.Size = UDim2.new(1, -170, 1, -32)
+ContentArea.Position = UDim2.fromOffset(170, 32)
+ContentArea.BackgroundColor3 = Theme.Background
+ContentArea.BorderSizePixel = 0
+ContentArea.ClipsDescendants = true
+ContentArea.Parent = Window
+
+-- ---- Resize / power floating buttons (outside window) ----
+local PowerBtn = Instance.new("TextButton")
+PowerBtn.Size = UDim2.fromOffset(32, 32)
+PowerBtn.AnchorPoint = Vector2.new(1, 0)
+PowerBtn.Position = UDim2.new(1, -12, 0, 10)
+PowerBtn.BackgroundColor3 = Theme.Panel
+PowerBtn.Text = "⏻"
+PowerBtn.Font = FONT_BOLD
+PowerBtn.TextSize = 14
+PowerBtn.TextColor3 = Theme.Accent
+PowerBtn.AutoButtonColor = false
+PowerBtn.Parent = ScreenGui
+Instance.new("UICorner", PowerBtn).CornerRadius = UDim.new(1, 0)
+Instance.new("UIStroke", PowerBtn).Color = Theme.Border
+
+local ResizeBtn = Instance.new("TextButton")
+ResizeBtn.Size = UDim2.fromOffset(32, 32)
+ResizeBtn.AnchorPoint = Vector2.new(1, 0)
+ResizeBtn.Position = UDim2.new(1, -54, 0, 10)
+ResizeBtn.BackgroundColor3 = Theme.Panel
+ResizeBtn.Text = "⬢"
+ResizeBtn.Font = FONT_BOLD
+ResizeBtn.TextSize = 13
+ResizeBtn.TextColor3 = Theme.Text
+ResizeBtn.AutoButtonColor = false
+ResizeBtn.Parent = ScreenGui
+Instance.new("UICorner", ResizeBtn).CornerRadius = UDim.new(1, 0)
+Instance.new("UIStroke", ResizeBtn).Color = Theme.Border
+
+local sizePresets = {UDim2.fromOffset(560,360), UDim2.fromOffset(760,460), UDim2.fromOffset(960,600)}
+local sizeIndex = 2
+ResizeBtn.MouseButton1Click:Connect(function()
+    sizeIndex = sizeIndex % #sizePresets + 1
+    TweenService:Create(Window, TweenInfo.new(0.25, Enum.EasingStyle.Quart), {Size = sizePresets[sizeIndex]}):Play()
+end)
+
+local windowWasVisible = true
+PowerBtn.MouseButton1Click:Connect(function()
+    Window.Visible = not Window.Visible
+    PowerBtn.TextColor3 = Window.Visible and Theme.Accent or Theme.Dim
+end)
+MinimizeBtn.MouseButton1Click:Connect(function()
+    Window.Visible = not Window.Visible
+    PowerBtn.TextColor3 = Window.Visible and Theme.Accent or Theme.Dim
+end)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        Window.Visible = not Window.Visible
+        PowerBtn.TextColor3 = Window.Visible and Theme.Accent or Theme.Dim
+    end
+end)
+
+-- ============================================================
+-- LIBRARY: Window / Tab / Section / Components
+-- ============================================================
+local Library = {}
+local WindowAPI = {}
+WindowAPI.__index = WindowAPI
+
+local tabs = {}       -- list of {button, page, name}
+local activeTabIdx = nil
+
+local function setActiveTab(idx)
+    for i, t in ipairs(tabs) do
+        local isActive = (i == idx)
+        t.page.Visible = isActive
+        local targetBg = isActive and Theme.Panel or Theme.Sidebar
+        local targetText = isActive and Theme.Text or Theme.SubText
+        TweenService:Create(t.button, TweenInfo.new(0.15), {BackgroundColor3 = targetBg}):Play()
+        t.label.TextColor3 = targetText
+        t.indicator.BackgroundTransparency = isActive and 0 or 1
+    end
+    activeTabIdx = idx
+end
+
+function Library.CreateWindow(title)
+    if title then TitleText.Text = title end
+    return setmetatable({}, WindowAPI)
+end
+
+function WindowAPI:CreateTab(name, icon)
+    icon = icon or "▸"
+    local index = #tabs + 1
+
+    -- Sidebar button
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 34)
+    btn.BackgroundColor3 = Theme.Sidebar
+    btn.BackgroundTransparency = 0
+    btn.AutoButtonColor = false
+    btn.Text = ""
+    btn.LayoutOrder = index
+    btn.Parent = TabList
+
+    local indicator = Instance.new("Frame")
+    indicator.Size = UDim2.new(0, 3, 1, -10)
+    indicator.Position = UDim2.fromOffset(0, 5)
+    indicator.BackgroundColor3 = Theme.Accent
+    indicator.BackgroundTransparency = 1
+    indicator.BorderSizePixel = 0
+    indicator.Parent = btn
+    Instance.new("UICorner", indicator).CornerRadius = UDim.new(1, 0)
+
+    local iconLabel = Instance.new("TextLabel")
+    iconLabel.BackgroundTransparency = 1
+    iconLabel.Size = UDim2.fromOffset(24, 34)
+    iconLabel.Position = UDim2.fromOffset(12, 0)
+    iconLabel.Font = FONT
+    iconLabel.TextSize = 14
+    iconLabel.TextColor3 = Theme.SubText
+    iconLabel.Text = icon
+    iconLabel.Parent = btn
+
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, -46, 1, 0)
+    label.Position = UDim2.fromOffset(38, 0)
+    label.Font = FONT
+    label.TextSize = TXT_SIZE
+    label.TextColor3 = Theme.SubText
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Text = name
+    label.Parent = btn
+
+    btn.MouseEnter:Connect(function()
+        if activeTabIdx ~= index then
+            TweenService:Create(btn, TweenInfo.new(0.12), {BackgroundColor3 = Theme.Panel}):Play()
+        end
+    end)
+    btn.MouseLeave:Connect(function()
+        if activeTabIdx ~= index then
+            TweenService:Create(btn, TweenInfo.new(0.12), {BackgroundColor3 = Theme.Sidebar}):Play()
+        end
+    end)
+
+    -- Page (scrolling content)
+    local page = Instance.new("ScrollingFrame")
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundColor3 = Theme.Panel
+    page.BackgroundTransparency = 0
+    page.BorderSizePixel = 0
+    page.ScrollBarThickness = 4
+    page.ScrollBarImageColor3 = Theme.AccentDim
+    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    page.CanvasSize = UDim2.new(0,0,0,0)
+    page.Visible = false
+    page.Parent = ContentArea
+
+    local pagePad = Instance.new("UIPadding")
+    pagePad.PaddingTop = UDim.new(0, 16)
+    pagePad.PaddingLeft = UDim.new(0, 16)
+    pagePad.PaddingRight = UDim.new(0, 16)
+    pagePad.PaddingBottom = UDim.new(0, 16)
+    pagePad.Parent = page
+
+    local pageLayout = Instance.new("UIListLayout")
+    pageLayout.Padding = UDim.new(0, 14)
+    pageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    pageLayout.Parent = page
+
+    btn.MouseButton1Click:Connect(function() setActiveTab(index) end)
+
+    tabs[index] = {button = btn, page = page, label = label, indicator = indicator, name = name}
+    if index == 1 then setActiveTab(1) end
+
+    -- ===================== Tab API =====================
+    local TabAPI = {}
+    TabAPI.__index = TabAPI
+
+    function TabAPI:CreateSection(sectionName)
+        local sectionOrder = #page:GetChildren()
+
+        local Section = Instance.new("Frame")
+        Section.Size = UDim2.new(1, 0, 0, 0)
+        Section.AutomaticSize = Enum.AutomaticSize.Y
+        Section.BackgroundColor3 = Theme.SectionBg
+        Section.BorderSizePixel = 0
+        Section.LayoutOrder = sectionOrder
+        Section.Parent = page
+        Instance.new("UICorner", Section).CornerRadius = UDim.new(0, 6)
+        local secStroke = Instance.new("UIStroke", Section)
+        secStroke.Color = Theme.Border
+        secStroke.Thickness = 1
+
+        local secPad = Instance.new("UIPadding")
+        secPad.PaddingTop = UDim.new(0, 10)
+        secPad.PaddingBottom = UDim.new(0, 12)
+        secPad.PaddingLeft = UDim.new(0, 14)
+        secPad.PaddingRight = UDim.new(0, 14)
+        secPad.Parent = Section
+
+        local secLayout = Instance.new("UIListLayout")
+        secLayout.Padding = UDim.new(0, 8)
+        secLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        secLayout.Parent = Section
+
+        local Header = Instance.new("TextLabel")
+        Header.BackgroundTransparency = 1
+        Header.Size = UDim2.new(1, 0, 0, 16)
+        Header.Font = FONT_BOLD
+        Header.TextSize = 11
+        Header.TextColor3 = Theme.Accent
+        Header.TextXAlignment = Enum.TextXAlignment.Left
+        Header.Text = "◆ " .. sectionName:upper()
+        Header.LayoutOrder = 0
+        Header.Parent = Section
+
+        local SectionAPI = {}
+        SectionAPI.__index = SectionAPI
+        local itemOrder = 1
+
+        local function baseRow(height)
+            local row = Instance.new("Frame")
+            row.Size = UDim2.new(1, 0, 0, height)
+            row.BackgroundTransparency = 1
+            row.LayoutOrder = itemOrder
+            itemOrder += 1
+            row.Parent = Section
+            return row
+        end
+
+        function SectionAPI:CreateLabel(text, color)
+            local row = baseRow(18)
+            local lbl = Instance.new("TextLabel")
+            lbl.BackgroundTransparency = 1
+            lbl.Size = UDim2.new(1, 0, 1, 0)
+            lbl.Font = FONT
+            lbl.TextSize = TXT_SIZE
+            lbl.TextColor3 = color or Theme.Text
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.Text = text
+            lbl.Parent = row
+            return lbl -- has .Text settable for live updates
+        end
+
+        function SectionAPI:CreateButton(config)
+            config = config or {}
+            local row = baseRow(30)
+            local btn2 = Instance.new("TextButton")
+            btn2.Size = UDim2.new(1, 0, 1, 0)
+            btn2.BackgroundColor3 = Theme.ToggleOff
+            btn2.AutoButtonColor = false
+            btn2.Font = FONT
+            btn2.TextSize = TXT_SIZE
+            btn2.TextColor3 = Theme.Text
+            btn2.Text = config.Name or "Button"
+            btn2.Parent = row
+            Instance.new("UICorner", btn2).CornerRadius = UDim.new(0, 4)
+            btn2.MouseEnter:Connect(function() TweenService:Create(btn2, TweenInfo.new(0.1), {BackgroundColor3 = Theme.AccentDim}):Play() end)
+            btn2.MouseLeave:Connect(function() TweenService:Create(btn2, TweenInfo.new(0.1), {BackgroundColor3 = Theme.ToggleOff}):Play() end)
+            btn2.MouseButton1Click:Connect(function()
+                if config.Callback then config.Callback() end
+            end)
+            return btn2
+        end
+
+        function SectionAPI:CreateToggle(config)
+            config = config or {}
+            local state = config.CurrentValue or false
+            local row = baseRow(26)
+
+            local lbl = Instance.new("TextLabel")
+            lbl.BackgroundTransparency = 1
+            lbl.Size = UDim2.new(1, -50, 1, 0)
+            lbl.Font = FONT
+            lbl.TextSize = TXT_SIZE
+            lbl.TextColor3 = Theme.Text
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.Text = config.Name or "Toggle"
+            lbl.Parent = row
+
+            local track = Instance.new("TextButton")
+            track.Size = UDim2.fromOffset(40, 20)
+            track.Position = UDim2.new(1, -40, 0.5, -10)
+            track.BackgroundColor3 = state and Theme.ToggleOn or Theme.ToggleOff
+            track.AutoButtonColor = false
+            track.Text = ""
+            track.Parent = row
+            Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+            local knob = Instance.new("Frame")
+            knob.Size = UDim2.fromOffset(16, 16)
+            knob.Position = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+            knob.BackgroundColor3 = Color3.fromRGB(255,255,255)
+            knob.Parent = track
+            Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+            track.MouseButton1Click:Connect(function()
+                state = not state
+                TweenService:Create(track, TweenInfo.new(0.15), {BackgroundColor3 = state and Theme.ToggleOn or Theme.ToggleOff}):Play()
+                TweenService:Create(knob, TweenInfo.new(0.15), {Position = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
+                if config.Callback then config.Callback(state) end
+            end)
+            return {Set = function(_, v) state = v; track.BackgroundColor3 = v and Theme.ToggleOn or Theme.ToggleOff; knob.Position = v and UDim2.new(1,-18,0.5,-8) or UDim2.new(0,2,0.5,-8) end}
+        end
+
+        function SectionAPI:CreateSlider(config)
+            config = config or {}
+            local min, max = config.Range and config.Range[1] or 0, config.Range and config.Range[2] or 100
+            local value = config.CurrentValue or min
+            local row = baseRow(40)
+
+            local lbl = Instance.new("TextLabel")
+            lbl.BackgroundTransparency = 1
+            lbl.Size = UDim2.new(1, 0, 0, 16)
+            lbl.Font = FONT
+            lbl.TextSize = TXT_SIZE
+            lbl.TextColor3 = Theme.Text
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.Text = (config.Name or "Slider") .. ": " .. tostring(value)
+            lbl.Parent = row
+
+            local bar = Instance.new("Frame")
+            bar.Size = UDim2.new(1, 0, 0, 8)
+            bar.Position = UDim2.fromOffset(0, 22)
+            bar.BackgroundColor3 = Theme.ToggleOff
+            bar.Parent = row
+            Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+
+            local fill = Instance.new("Frame")
+            fill.Size = UDim2.new((value - min) / (max - min), 0, 1, 0)
+            fill.BackgroundColor3 = Theme.Accent
+            fill.Parent = bar
+            Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+            local dragBtn = Instance.new("TextButton")
+            dragBtn.BackgroundTransparency = 1
+            dragBtn.Size = UDim2.new(1, 0, 1, 0)
+            dragBtn.Text = ""
+            dragBtn.Parent = bar
+
+            local draggingSlider = false
+            local function updateFromX(xPos)
+                local rel = math.clamp((xPos - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+                value = math.floor(min + rel * (max - min))
+                fill.Size = UDim2.new(rel, 0, 1, 0)
+                lbl.Text = (config.Name or "Slider") .. ": " .. tostring(value)
+                if config.Callback then config.Callback(value) end
+            end
+            dragBtn.MouseButton1Down:Connect(function() draggingSlider = true end)
+            UserInputService.InputEnded:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.MouseButton1 then draggingSlider = false end
+            end)
+            UserInputService.InputChanged:Connect(function(i)
+                if draggingSlider and i.UserInputType == Enum.UserInputType.MouseMovement then
+                    updateFromX(i.Position.X)
+                end
+            end)
+            dragBtn.MouseButton1Click:Connect(function() end)
+            return {Set = function(_, v) value = v; local rel=(v-min)/(max-min); fill.Size=UDim2.new(rel,0,1,0); lbl.Text=(config.Name or "Slider")..": "..tostring(v) end}
+        end
+
+        function SectionAPI:CreateDropdown(config)
+            config = config or {}
+            local options = config.Options or {}
+            local current = config.CurrentOption or options[1] or ""
+            local row = baseRow(30)
+            local open = false
+
+            local main = Instance.new("TextButton")
+            main.Size = UDim2.new(1, 0, 0, 30)
+            main.BackgroundColor3 = Theme.ToggleOff
+            main.AutoButtonColor = false
+            main.Font = FONT
+            main.TextSize = TXT_SIZE
+            main.TextColor3 = Theme.Text
+            main.Text = (config.Name or "Select") .. ":  " .. tostring(current) .. "  ▾"
+            main.Parent = row
+            Instance.new("UICorner", main).CornerRadius = UDim.new(0, 4)
+
+            local list = Instance.new("Frame")
+            list.Size = UDim2.new(1, 0, 0, #options * 24)
+            list.Position = UDim2.new(0, 0, 1, 4)
+            list.BackgroundColor3 = Theme.Panel
+            list.Visible = false
+            list.ZIndex = 5
+            list.Parent = main
+            Instance.new("UICorner", list).CornerRadius = UDim.new(0, 4)
+            local listLayout = Instance.new("UIListLayout", list)
+            listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+            for _, opt in ipairs(options) do
+                local optBtn = Instance.new("TextButton")
+                optBtn.Size = UDim2.new(1, 0, 0, 24)
+                optBtn.BackgroundTransparency = 1
+                optBtn.Font = FONT
+                optBtn.TextSize = TXT_SIZE
+                optBtn.TextColor3 = Theme.SubText
+                optBtn.Text = "  " .. opt
+                optBtn.TextXAlignment = Enum.TextXAlignment.Left
+                optBtn.ZIndex = 6
+                optBtn.Parent = list
+                optBtn.MouseButton1Click:Connect(function()
+                    current = opt
+                    main.Text = (config.Name or "Select") .. ":  " .. tostring(current) .. "  ▾"
+                    list.Visible = false
+                    open = false
+                    if config.Callback then config.Callback(opt) end
+                end)
+            end
+
+            main.MouseButton1Click:Connect(function()
+                open = not open
+                list.Visible = open
+            end)
+            return {Set = function(_, v) current = v; main.Text = (config.Name or "Select")..":  "..tostring(v).."  ▾" end}
+        end
+
+        return SectionAPI
+    end
+
+    return TabAPI
+end
+
+Library.Theme = Theme
+Library.ScreenGui = ScreenGui
+Library.Window = Window
+
+-- ============================================================
+-- YOUR CONTENT — self-only, no remotes, no other-player data
+-- ============================================================
+local Win = Library.CreateWindow("shapex@terminal ~ rayfield-style")
+
+-- ---------------- TAB 1: STATS ----------------
+local StatsTab = Win:CreateTab("Stats", "◆")
+local liveSection = StatsTab:CreateSection("Live Self Stats")
+
+local fpsLabel   = liveSection:CreateLabel("FPS: —", Theme.Info)
+local pingLabel  = liveSection:CreateLabel("Ping: —", Theme.Info)
+local hpLabel    = liveSection:CreateLabel("Health: —", Theme.Success)
+local wsLabel    = liveSection:CreateLabel("WalkSpeed: —", Theme.Text)
+local posLabel   = liveSection:CreateLabel("Position: —", Theme.Text)
+local jobSection = StatsTab:CreateSection("Session Info")
+local jobLabel   = jobSection:CreateLabel("JobId: " .. tostring(game.JobId ~= "" and game.JobId or "Studio/Local"), Theme.Dim)
+local plyLabel   = jobSection:CreateLabel("Player: " .. player.Name, Theme.Dim)
+local plrCountLabel = jobSection:CreateLabel("Players in server: —", Theme.Dim)
+
+local frameCount, lastFpsUpdate = 0, os.clock()
+RunService.RenderStepped:Connect(function()
+    frameCount += 1
+    local now = os.clock()
+    if now - lastFpsUpdate >= 0.5 then
+        local fps = math.floor(frameCount / (now - lastFpsUpdate))
+        fpsLabel.Text = "FPS: " .. fps
+        frameCount, lastFpsUpdate = 0, now
+    end
+end)
+
+task.spawn(function()
+    while true do
+        pcall(function()
+            pingLabel.Text = "Ping: " .. math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) .. " ms"
+        end)
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hum then
+                hpLabel.Text = "Health: " .. math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
+                wsLabel.Text = "WalkSpeed: " .. hum.WalkSpeed
+            end
+            if hrp then
+                local p = hrp.Position
+                posLabel.Text = string.format("Position: %.1f, %.1f, %.1f", p.X, p.Y, p.Z)
+            end
+        end
+        plrCountLabel.Text = "Players in server: " .. #Players:GetPlayers()
+        task.wait(1)
+    end
+end)
+
+-- ---------------- TAB 2: SETTINGS ----------------
+local SettingsTab = Win:CreateTab("Settings", "⚙")
+local uiSection = SettingsTab:CreateSection("UI Preferences")
+
+uiSection:CreateToggle({
+    Name = "Enable glitch effect on tab switch",
+    CurrentValue = false,
+    Callback = function(state)
+        print("[ShapeX] Glitch effect:", state)
+    end
+})
+
+uiSection:CreateSlider({
+    Name = "UI Scale",
+    Range = {80, 130},
+    CurrentValue = 100,
+    Callback = function(val)
+        local scale = Window:FindFirstChildOfClass("UIScale")
+        if not scale then
+            scale = Instance.new("UIScale")
+            scale.Parent = Window
+        end
+        scale.Scale = val / 100
+    end
+})
+
+uiSection:CreateDropdown({
+    Name = "Accent Color",
+    Options = {"Blue/Purple", "Green", "Red", "Amber"},
+    CurrentOption = "Blue/Purple",
+    Callback = function(choice)
+        local map = {
+            ["Blue/Purple"] = Color3.fromRGB(120,130,255),
+            ["Green"]       = Color3.fromRGB(90,210,130),
+            ["Red"]         = Color3.fromRGB(255,90,90),
+            ["Amber"]       = Color3.fromRGB(255,185,60),
+        }
+        Theme.Accent = map[choice]
+    end
+})
+
+local behaviorSection = SettingsTab:CreateSection("Behavior")
+behaviorSection:CreateToggle({
+    Name = "Hide on RightShift",
+    CurrentValue = true,
+})
+behaviorSection:CreateButton({
+    Name = "Reset window size & position",
+    Callback = function()
+        Window.Size = sizePresets[2]
+        Window.Position = UDim2.fromScale(0.5, 0.5)
+        sizeIndex = 2
+    end
+})
+
+-- ---------------- TAB 3: ABOUT ----------------
+local AboutTab = Win:CreateTab("About", "ℹ")
+local aboutSection = AboutTab:CreateSection("ShapeX Terminal")
+aboutSection:CreateLabel("Rayfield-style self-stats & settings terminal.", Theme.Text)
+aboutSection:CreateLabel("Displays only local player data. No remotes.", Theme.SubText)
+aboutSection:CreateLabel("Extend via Window:CreateTab() / Section:CreateX()", Theme.SubText)

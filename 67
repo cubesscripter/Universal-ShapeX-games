@@ -1,0 +1,514 @@
+-- WorkShopExploit Complete - Rayfield UI Version
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "WorkShopExploit",
+    LoadingTitle = "WorkShopExploit",
+    LoadingSubtitle = "Loading...",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "WorkShopExploit",
+        FileName = "Config"
+    },
+    KeySystem = false
+})
+
+-- Services
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Get modules
+local MODULE_SHOP = ReplicatedStorage:WaitForChild("MODULES"):WaitForChild("MODULE_SHOP")
+local ITEM_TYPES = MODULE_SHOP:WaitForChild("ITEM_TYPES")
+local REMOTES = ReplicatedStorage:WaitForChild("REMOTES")
+
+-- Arsenal Tab
+local ArsenalTab = Window:CreateTab("Arsenal", "sword")
+
+ArsenalTab:CreateSection("Weapon Spawner")
+
+-- Weapon spawn function
+local function spawnWeapon(weaponName, ammoType, ammoAmount)
+    local args = {
+        ["TYPE"] = ITEM_TYPES:WaitForChild("FRAME_WEAPON_ITEM"),
+        ["AMMO"] = ammoAmount or 4,
+        ["COST"] = 9e-10,
+        ["AMMO_TYPE"] = {
+            ["TYPE"] = ITEM_TYPES:WaitForChild("FRAME_WEAPON_ITEM"),
+            ["AMMO"] = ammoType or "Nails",
+            ["COST"] = 2,
+            ["WORTH"] = false,
+            ["IMAGE_ID"] = "rbxassetid://14793880027",
+            ["FORCE_PURCHASE"] = true,
+            ["IMAGE_COLOR"] = Color3.new(1, 1, 1),
+            ["ORDER"] = 10,
+            ["WORTH_COST"] = 15,
+            ["AMOUNT"] = 1
+        },
+        ["WORTH"] = true,
+        ["IMAGE_ID"] = "rbxassetid://14673183012",
+        ["FORCE_PURCHASE"] = true,
+        ["IMAGE_COLOR"] = Color3.new(1, 1, 1),
+        ["STAT"] = {},
+        ["TOOL"] = ReplicatedStorage:WaitForChild("Weapons"):WaitForChild(weaponName),
+        ["WORTH_COST"] = 35,
+        ["ORDER"] = 2
+    }
+    
+    local success, err = pcall(function()
+        REMOTES:WaitForChild("REMOTE_ARSENAL"):FireServer(args)
+    end)
+    
+    if success then
+        Rayfield:Notify({
+            Title = "Success",
+            Content = weaponName .. " spawned!",
+            Duration = 2,
+            Image = "check"
+        })
+    else
+        Rayfield:Notify({
+            Title = "Error",
+            Content = "Failed: " .. tostring(err),
+            Duration = 3,
+            Image = "x"
+        })
+    end
+end
+
+-- All Weapons
+local weapons = {
+    "Golden Hammer", "Boom Stick", "Minigun", "M249", "USP", 
+    "Pistol 9mm", "MP7 SMG", "SSG", "FAMAS", "Uzi", 
+    "SG 553", "Glock 18", "Desert Eagle", "Galil", 
+    "MP5 SMG", "AWP", "AK-47", "M4A1", "AUG", 
+    "Benelli M3", "Admin Gun"
+}
+
+for _, weapon in ipairs(weapons) do
+    ArsenalTab:CreateButton({
+        Name = weapon,
+        Callback = function()
+            spawnWeapon(weapon)
+        end
+    })
+end
+
+-- Ammo Section
+ArsenalTab:CreateSection("Ammo Modifiers")
+
+ArsenalTab:CreateButton({
+    Name = "Infinite Ammo",
+    Callback = function()
+        local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+        if tool then
+            local ammo = tool:FindFirstChild("Ammo")
+            if ammo then
+                ammo.Value = 9999
+                Rayfield:Notify({
+                    Title = "Success",
+                    Content = "Infinite ammo applied!",
+                    Duration = 2,
+                    Image = "check"
+                })
+            end
+        else
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "Equip a weapon first!",
+                Duration = 2,
+                Image = "x"
+            })
+        end
+    end
+})
+
+ArsenalTab:CreateButton({
+    Name = "Max Ammo All",
+    Callback = function()
+        for _, tool in ipairs(LocalPlayer.Backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                local ammo = tool:FindFirstChild("Ammo")
+                if ammo then
+                    ammo.Value = 9999
+                end
+            end
+        end
+        Rayfield:Notify({
+            Title = "Success",
+            Content = "Max ammo for all weapons!",
+            Duration = 2,
+            Image = "check"
+        })
+    end
+})
+
+-- Humanoid Tab
+local HumanoidTab = Window:CreateTab("Humanoid", "user")
+
+HumanoidTab:CreateSection("Movement")
+
+HumanoidTab:CreateSlider({
+    Name = "WalkSpeed",
+    Range = {0, 500},
+    Increment = 1,
+    Suffix = "Studs/s",
+    CurrentValue = 16,
+    Flag = "WalkSpeedSlider",
+    Callback = function(Value)
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.WalkSpeed = Value
+        end
+    end
+})
+
+HumanoidTab:CreateSlider({
+    Name = "JumpPower",
+    Range = {0, 500},
+    Increment = 1,
+    Suffix = "Power",
+    CurrentValue = 50,
+    Flag = "JumpPowerSlider",
+    Callback = function(Value)
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.JumpPower = Value
+        end
+    end
+})
+
+HumanoidTab:CreateToggle({
+    Name = "Auto Apply on Respawn",
+    CurrentValue = true,
+    Flag = "AutoApply",
+    Callback = function(Value)
+        -- Handled in connection below
+    end
+})
+
+-- Auto-apply connection
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    if not Rayfield.Flags["AutoApply"] then return end
+    
+    local humanoid = char:WaitForChild("Humanoid")
+    local walkSpeed = Rayfield.Flags["WalkSpeedSlider"] and Rayfield.Flags["WalkSpeedSlider"].CurrentValue or 16
+    local jumpPower = Rayfield.Flags["JumpPowerSlider"] and Rayfield.Flags["JumpPowerSlider"].CurrentValue or 50
+    
+    humanoid.WalkSpeed = walkSpeed
+    humanoid.JumpPower = jumpPower
+end)
+
+HumanoidTab:CreateSection("Other Modifiers")
+
+HumanoidTab:CreateButton({
+    Name = "God Mode (Health)",
+    Callback = function()
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.MaxHealth = math.huge
+            char.Humanoid.Health = math.huge
+            Rayfield:Notify({
+                Title = "Success",
+                Content = "God mode enabled!",
+                Duration = 2,
+                Image = "check"
+            })
+        end
+    end
+})
+
+HumanoidTab:CreateButton({
+    Name = "Full Heal",
+    Callback = function()
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.Health = char.Humanoid.MaxHealth
+            Rayfield:Notify({
+                Title = "Success",
+                Content = "Health restored!",
+                Duration = 2,
+                Image = "check"
+            })
+        end
+    end
+})
+
+HumanoidTab:CreateToggle({
+    Name = "No Clip",
+    CurrentValue = false,
+    Flag = "NoClip",
+    Callback = function(Value)
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = not Value
+                end
+            end
+        end
+    end
+})
+
+-- No Clip loop
+RunService.Stepped:Connect(function()
+    if Rayfield.Flags["NoClip"] and Rayfield.Flags["NoClip"].CurrentValue then
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
+-- Scripts Tab
+local ScriptsTab = Window:CreateTab("Scripts", "scroll")
+
+ScriptsTab:CreateSection("Utility Scripts")
+
+ScriptsTab:CreateButton({
+    Name = "ESP Players",
+    Callback = function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local highlight = Instance.new("Highlight")
+                highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                highlight.FillTransparency = 0.5
+                highlight.OutlineTransparency = 0
+                highlight.Parent = player.Character
+            end
+        end
+        Rayfield:Notify({
+            Title = "ESP",
+            Content = "Player ESP enabled!",
+            Duration = 2,
+            Image = "check"
+        })
+    end
+})
+
+ScriptsTab:CreateButton({
+    Name = "Remove ESP",
+    Callback = function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.Character then
+                for _, obj in ipairs(player.Character:GetChildren()) do
+                    if obj:IsA("Highlight") then
+                        obj:Destroy()
+                    end
+                end
+            end
+        end
+    end
+})
+
+ScriptsTab:CreateButton({
+    Name = "Teleport to Random Player",
+    Callback = function()
+        local players = Players:GetPlayers()
+        if #players > 1 then
+            local target
+            repeat
+                target = players[math.random(1, #players)]
+            until target ~= LocalPlayer and target.Character
+            
+            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character:PivotTo(target.Character.HumanoidRootPart.CFrame)
+            end
+        end
+    end
+})
+
+ScriptsTab:CreateSection("Game Modifiers")
+
+ScriptsTab:CreateToggle({
+    Name = "Auto Click",
+    CurrentValue = false,
+    Flag = "AutoClick",
+    Callback = function(Value)
+        -- Handled in loop
+    end
+})
+
+-- Auto click loop
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if Rayfield.Flags["AutoClick"] and Rayfield.Flags["AutoClick"].CurrentValue then
+            local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+            if tool then
+                tool:Activate()
+            end
+        end
+    end
+end)
+
+ScriptsTab:CreateButton({
+    Name = "Collect All Drops",
+    Callback = function()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and obj.Name:lower():find("drop") or obj.Name:lower():find("collect") then
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    LocalPlayer.Character.HumanoidRootPart.CFrame = obj.CFrame
+                    task.wait(0.1)
+                end
+            end
+        end
+    end
+})
+
+-- Patch Tab
+local PatchTab = Window:CreateTab("Patch", "wrench")
+
+PatchTab:CreateSection("Anti-Cheat / Patches")
+
+PatchTab:CreateButton({
+    Name = "Bypass Anti-Cheat",
+    Callback = function()
+        local success = pcall(function()
+            -- Common anti-cheat bypass patterns
+            local mt = getrawmetatable(game)
+            setreadonly(mt, false)
+            local oldNamecall = mt.__namecall
+            mt.__namecall = newcclosure(function(self, ...)
+                local method = getnamecallmethod()
+                if method == "FireServer" or method == "InvokeServer" then
+                    if tostring(self):lower():find("ban") or tostring(self):lower():find("kick") or tostring(self):lower():find("detect") then
+                        return nil
+                    end
+                end
+                return oldNamecall(self, ...)
+            end)
+            setreadonly(mt, true)
+        end)
+        
+        if success then
+            Rayfield:Notify({
+                Title = "Success",
+                Content = "Anti-cheat bypassed!",
+                Duration = 2,
+                Image = "check"
+            })
+        else
+            Rayfield:Notify({
+                Title = "Info",
+                Content = "Bypass may already be active",
+                Duration = 2,
+                Image = "info"
+            })
+        end
+    end
+})
+
+PatchTab:CreateButton({
+    Name = "Patch Remote Security",
+    Callback = function()
+        for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+            if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
+                -- Hook remotes to prevent detection
+                local oldFire = remote.FireServer
+                remote.FireServer = function(self, ...)
+                    local args = {...}
+                    -- Filter out detection calls
+                    if #args > 0 and type(args[1]) == "table" then
+                        if args[1].Detect or args[1].Check then
+                            return nil
+                        end
+                    end
+                    return oldFire(self, ...)
+                end
+            end
+        end
+        Rayfield:Notify({
+            Title = "Success",
+            Content = "Remote security patched!",
+            Duration = 2,
+            Image = "check"
+        })
+    end
+})
+
+PatchTab:CreateToggle({
+    Name = "Anti-AFK",
+    CurrentValue = false,
+    Flag = "AntiAFK",
+    Callback = function(Value)
+        if Value then
+            local vu = game:GetService("VirtualUser")
+            LocalPlayer.Idled:Connect(function()
+                vu:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+                task.wait(1)
+                vu:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+            end)
+        end
+    end
+})
+
+PatchTab:CreateSection("Server")
+
+PatchTab:CreateButton({
+    Name = "Rejoin Server",
+    Callback = function()
+        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    end
+})
+
+PatchTab:CreateButton({
+    Name = "Server Hop",
+    Callback = function()
+        local HttpService = game:GetService("HttpService")
+        local TeleportService = game:GetService("TeleportService")
+        local servers = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
+        for _, server in ipairs(servers.data) do
+            if server.playing < server.maxPlayers and server.id ~= game.JobId then
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, LocalPlayer)
+                break
+            end
+        end
+    end
+})
+
+-- Settings Tab
+local SettingsTab = Window:CreateTab("Settings", "settings")
+
+SettingsTab:CreateButton({
+    Name = "Destroy GUI",
+    Callback = function()
+        Rayfield:Destroy()
+    end
+})
+
+SettingsTab:CreateButton({
+    Name = "Rejoin with GUI",
+    Callback = function()
+        writefile("WorkShopExploit_Reload.txt", "true")
+        game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
+    end
+})
+
+-- Check for reload
+if isfile and isfile("WorkShopExploit_Reload.txt") then
+    delfile("WorkShopExploit_Reload.txt")
+    Rayfield:Notify({
+        Title = "Welcome Back",
+        Content = "GUI auto-loaded after rejoin!",
+        Duration = 3,
+        Image = "check"
+    })
+end
+
+-- Initial notification
+Rayfield:Notify({
+    Title = "WorkShopExploit",
+    Content = "Successfully loaded all features!",
+    Duration = 3,
+    Image = "check"
+})
